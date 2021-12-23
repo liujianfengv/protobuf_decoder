@@ -8,9 +8,6 @@ INT_MAX = 2147483647
 kTagTypeBits = 3
 
 
-kSlopBytes = 16
-
-
 class WireType(Enum):
     WIRETYPE_VARINT = 0
     WIRETYPE_FIXED64 = 1
@@ -50,13 +47,7 @@ def get_tag_field_number(tag):
 
 
 def parse_varint_slow(data, res):
-    for i in range(2, 5):
-        byte = data[i]
-        res += (byte - 1) << 7 * i
-        if byte < 128:
-            return data[i + 1:], res
-    # Accept > 5 bytes
-    for i in range(5, 10):
+    for i in range(2, 10):
         byte = data[i]
         res += (byte - 1) << 7 * i
         if byte < 128:
@@ -85,7 +76,7 @@ def read_size_fallback(data, res):
     if byte >= 8:
         return None, None
     res += (byte - 1) << 28
-    if res > INT_MAX - kSlopBytes:
+    if res > INT_MAX:
         return None, None
     return data[5:], res
 
@@ -104,7 +95,123 @@ def read_string(data, size):
 
 def parse_length_delimited(data):
     data, size = read_size(data)
+    res, success = parse_embedded_messages(data, size)
+    if success:
+        return data[size:], res
     return read_string(data, size)
+
+
+def read_tag_limit(data, limit):
+    if limit == 0:
+        return None, None, False
+    res = data[0]
+    if res < 128:
+        return data[1:], res, True
+    for i in range(1, 5):
+        if i >= limit:
+            return None, None, False
+        byte = data[i]
+        res += (byte - 1) << 7 * i
+        if byte < 128:
+            return data[i + 1:], res, True
+    return None, None
+
+
+def parse_varint_limit(data, limit):
+    if limit == 0:
+        return None, None, False
+    res = data[0]
+    if not (res & 0x80):
+        return data[1:], res, True
+
+    for i in range(1, 10):
+        if i >= limit:
+            return None, None, False
+        byte = data[i]
+        res += (byte - 1) << 7 * i
+        if byte < 128:
+            return data[i + 1:], res, True
+
+    return None, None, False
+
+
+def parse_fix64_limit(data, limit):
+    if limit < 8:
+        return None, None, False
+    else:
+        data, res = parse_fix64(data)
+        return data, res, True
+
+
+def parse_fix32_limit(data, limit):
+    if limit < 4:
+        return None, None, False
+    else:
+        data, res = parse_fix64(data)
+        return data, res, True
+
+
+def read_size_limit(data, limit):
+    if limit == 0:
+        return None, None, False
+    res = data[0]
+    if not (res & 0x80):
+        return data[1:], res, True
+    for i in range(1, 4):
+        if i >= limit:
+            return None, None, False
+        byte = data[i]
+        res += (byte - 1) << 7 * i
+        if byte < 128:
+            return data[i + 1:], res, True
+    if limit < 5:
+        return None, None, False
+    byte = data[4]
+    if byte >= 8:
+        return None, None, False
+    res += (byte - 1) << 28
+    if res > INT_MAX - kSlopBytes:
+        return None, None, False
+    return data[5:], res, True
+
+
+def parse_length_delimited_limit(data, limit):
+    data, size, success = read_size_limit(data, limit)
+    if not success:
+        return None, None, False
+    res, success = parse_embedded_messages(data, size)
+    if success:
+        return data[size:], res, True
+    if size <= limit:
+        data, res = read_string(data, size)
+        return data, res, True
+    return None, None, False
+
+
+def field_parser_limit(tag, data, limit):
+    options = {WireType.WIRETYPE_VARINT: parse_varint_limit,
+               WireType.WIRETYPE_FIXED64: parse_fix64_limit,
+               WireType.WIRETYPE_LENGTH_DELIMITED: parse_length_delimited_limit,
+               WireType.WIRETYPE_FIXED32: parse_fix32_limit}
+    return options[WireType(tag & 7)](data, limit)
+
+
+def parse_embedded_messages(data, size):
+    context = {}
+    origin_length = len(data)
+    while origin_length - len(data) < size:
+        data, tag, success = read_tag_limit(data, size - (origin_length - len(data)))
+        if not success:
+            return None, False
+        if tag == 0 or WireType(tag & 7) == WireType(WireType.WIRETYPE_END_GROUP) \
+                or WireType(tag & 7) == WireType(WireType.WIRETYPE_START_GROUP):
+            return None, False
+        field = get_tag_field_number(tag)
+        data, res, success = field_parser_limit(tag, data, size - (origin_length - len(data)))
+        if not success:
+            return None, False
+        context[str(field)] = res
+    return context, True
 
 
 def parse_fix32(data):
@@ -128,7 +235,7 @@ def parse_proto(file_name):
     data = open(file_name, "rb").read()
     while len(data) != 0:
         data, tag = read_tag(data)
-        if tag == 0 or tag & 7 == WireType(WireType.WIRETYPE_END_GROUP):
+        if tag == 0 or WireType(tag & 7) == WireType(WireType.WIRETYPE_END_GROUP):
             return None
         field = get_tag_field_number(tag)
         data, res = field_parser(tag, data)
