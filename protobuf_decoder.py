@@ -85,7 +85,7 @@ def read_size(data):
     res = data[0]
     if not (res & 0x80):
         return data[1:], res
-    return read_size_fallback()
+    return read_size_fallback(data, res)
 
 
 def read_string(data, size):
@@ -210,6 +210,13 @@ def parse_embedded_messages(data, size):
         data, res, success = field_parser_limit(tag, data, size - (origin_length - len(data)))
         if not success:
             return None, False
+        if str(field) in context:
+            if type(context[str(field)]) is list:
+                context[str(field)].append(res)
+            else:
+                arr = [context[str(field)], res]
+                context[str(field)] = arr
+            continue
         context[str(field)] = res
     return context, True
 
@@ -230,15 +237,21 @@ def field_parser(tag, data):
     return options[WireType(tag & 7)](data)
 
 
-def parse_proto(file_name):
+def parse_proto(data):
     context = {}
-    data = open(file_name, "rb").read()
     while len(data) != 0:
         data, tag = read_tag(data)
         if tag == 0 or WireType(tag & 7) == WireType(WireType.WIRETYPE_END_GROUP):
             return None
         field = get_tag_field_number(tag)
         data, res = field_parser(tag, data)
+        if str(field) in context:
+            if type(context[str(field)]) is list:
+                context[str(field)].append(res)
+            else:
+                arr = [context[str(field)], res]
+                context[str(field)] = arr
+            continue
         context[str(field)] = res
     return context
 
@@ -246,5 +259,7 @@ def parse_proto(file_name):
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         print_usage()
-    json_data = parse_proto(sys.argv[1])
+    with open(sys.argv[1], "rb") as file:
+        binary_data = file.read()
+    json_data = parse_proto(binary_data)
     print(json.dumps(json_data, indent=4, ensure_ascii=False))
