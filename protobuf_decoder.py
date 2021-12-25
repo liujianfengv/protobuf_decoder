@@ -84,8 +84,11 @@ def read_size(data):
 
 
 def read_string(data, size):
-    str_data = str(data[:size], 'utf-8')
-    return data[size:], str_data
+    return data[size:], str(data[:size], 'utf-8')
+
+
+def read_bytes(data, size):
+    return data[size:], data[:size].hex(' ')
 
 
 def parse_length_delimited(data):
@@ -93,7 +96,11 @@ def parse_length_delimited(data):
     res, success = parse_embedded_messages(data, size)
     if success:
         return data[size:], res
-    return read_string(data, size)
+    try:
+        data[:size].decode('utf-8')
+        return read_string(data, size)
+    except UnicodeError:
+        return read_bytes(data, size)
 
 
 def read_tag_limit(data, limit):
@@ -198,8 +205,9 @@ def parse_embedded_messages(data, size):
         data, tag, success = read_tag_limit(data, size - (origin_length - len(data)))
         if not success:
             return None, False
-        if tag == 0 or WireType(tag & 7) == WireType(WireType.WIRETYPE_END_GROUP) \
-                or WireType(tag & 7) == WireType(WireType.WIRETYPE_START_GROUP):
+        if tag == 0 or (tag & 7) > 5\
+                or WireType(tag & 7) == WireType(WireType.WIRETYPE_END_GROUP) \
+                or WireType(tag & 7) == WireType(WireType.WIRETYPE_START_GROUP) :
             return None, False
         field = get_tag_field_number(tag)
         data, res, success = field_parser_limit(tag, data, size - (origin_length - len(data)))
