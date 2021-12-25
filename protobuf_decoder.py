@@ -22,48 +22,32 @@ def print_usage():
           "Read a binary message from input file, and print filed:value pairs in text format")
 
 
-def read_tag_fallback(data, res):
-    for i in range(2, 5):
+def read_tag(data):
+    res = data[0]
+    if res < 128:
+        return data[1:], res
+    for i in range(1, 5):
         byte = data[i]
         res += (byte - 1) << 7 * i
         if byte < 128:
             return data[i + 1:], res
     return None, None
-
-
-def read_tag(data):
-    res = data[0]
-    if res < 128:
-        return data[1:], res
-    second = data[1]
-    res += (second - 1) << 7
-    if second < 128:
-        return data[2:], res
-    return read_tag_fallback(data, res)
 
 
 def get_tag_field_number(tag):
     return tag >> kTagTypeBits
 
 
-def parse_varint_slow(data, res):
-    for i in range(2, 10):
+def parse_varint(data):
+    res = data[0]
+    if not (res & 0x80):
+        return data[1:], res
+    for i in range(1, 10):
         byte = data[i]
         res += (byte - 1) << 7 * i
         if byte < 128:
             return data[i + 1:], res
     return None, None
-
-
-def parse_varint(data):
-    res = data[0]
-    if not (res & 0x80):
-        return data[1:], res
-    byte = data[1]
-    res += (byte - 1) << 7
-    if not (byte & 0x80):
-        return data[2:], res
-    return parse_varint_slow(data, res)
 
 
 def read_size_fallback(data, res):
@@ -85,7 +69,18 @@ def read_size(data):
     res = data[0]
     if not (res & 0x80):
         return data[1:], res
-    return read_size_fallback(data, res)
+    for i in range(1, 4):
+        byte = data[i]
+        res += (byte - 1) << 7 * i
+        if byte < 128:
+            return data[i + 1:], res
+    byte = data[4]
+    if byte >= 8:
+        return None, None
+    res += (byte - 1) << 28
+    if res > INT_MAX:
+        return None, None
+    return data[5:], res
 
 
 def read_string(data, size):
