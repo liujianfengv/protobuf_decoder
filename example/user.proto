@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+message UserInfo {
+  string name = 1;
+  int32 age = 2;
+  bool sex = 3;
+  string phone = 4;
+}
+
+message AddressBook {
+  string email = 1;
+  string phone = 2;
+  string twitter = 3;
+}
+message Location {
+  string state = 1;
+  int32 longitude = 2;
+  int32 latitude = 3;
+  AddressBook contact = 4;
+}
+
+message Company {
+  string name = 1;
+  repeated UserInfo legal_person = 2;
+  fixed32 tel = 3;
+  fixed64 fund = 4;
+  Location location = 5;
+  bytes checksum = 6;
+  repeated int32 int_array = 7;
+}
