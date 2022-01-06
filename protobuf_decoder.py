@@ -19,7 +19,7 @@ class WireType(Enum):
 
 def print_usage():
     print("Usage: python protobuf_decoder.py <raw_protobuf_data_file> \n"
-          "Read a binary message from input file, and print filed:value pairs in text format")
+          "Read a protocol binary message from input file, and print data in json format")
 
 
 def read_tag(data):
